@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice chat</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light dark;
+    --paper:#eceff7; --surface:#fff; --ink:#14172e; --muted:#596083; --line:#d3d8ea; --soft:#e4e8f8;
+    --cobalt:#3347ff; --on-cobalt:#fff; --rec:#cf2a43;
+    --font:"Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#0e1126; --surface:#171b37; --ink:#eceefb; --muted:#9aa1c9; --line:#2b3060; --soft:#222750; --cobalt:#7d8dff; --on-cobalt:#0e1126; --rec:#ff6580; }
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html, body { margin:0; height:100%; }
+  body { display:flex; flex-direction:column; background:var(--paper); color:var(--ink); font-family:var(--font); font-size:1rem; line-height:1.55; }
+  .col { width:100%; max-width:760px; margin:0 auto; padding:0 20px; }
+
+  /* header */
+  .top { padding-top:max(16px, env(safe-area-inset-top)); padding-bottom:12px; }
+  .top .col { display:flex; align-items:center; gap:12px; }
+  .brand { font-size:1.25rem; font-weight:600; letter-spacing:-0.02em; margin-right:auto; }
+  select { font:inherit; font-size:.9375rem; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:999px; padding:8px 14px; cursor:pointer; }
+  .pill { display:inline-flex; align-items:center; gap:8px; font:inherit; font-size:.9375rem; font-weight:500; padding:9px 18px 9px 14px; border-radius:999px; border:0; cursor:pointer; background:var(--cobalt); color:var(--on-cobalt); transition:filter .15s; }
+  .pill:hover { filter:brightness(1.1); }
+  .pill svg { width:18px; height:18px; }
+  :is(button, select, textarea):focus-visible { outline:2px solid var(--cobalt); outline-offset:2px; }
+  .notice, .alert { margin:0 auto 8px; max-width:720px; padding:10px 16px; border-radius:14px; font-size:.9375rem; }
+  .notice { background:var(--soft); color:var(--muted); }
+  .alert { background:color-mix(in srgb, var(--rec) 14%, transparent); color:var(--rec); }
+
+  /* thread */
+  .thread { flex:1; overflow-y:auto; }
+  .thread .col { display:flex; flex-direction:column; gap:22px; padding-top:12px; padding-bottom:24px; min-height:100%; }
+  .empty { margin:auto 0; padding:24px 0; }
+  .empty h1 { margin:0 0 20px; font-size:clamp(1.9rem,5vw,2.8rem); line-height:1.08; font-weight:600; letter-spacing:-0.025em; }
+  .suggest { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { font:inherit; font-size:.9375rem; padding:8px 16px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer; transition:background .15s; }
+  .chip:hover { background:var(--soft); }
+  .msg.user { align-self:flex-end; max-width:85%; background:var(--soft); padding:10px 16px; border-radius:22px 22px 6px 22px; white-space:pre-wrap; }
+  .msg.bot { max-width:92%; white-space:pre-wrap; }
+  .msg.bot .text { font-size:1.0625rem; }
+  .dots { display:inline-flex; gap:5px; padding:8px 0; }
+  .dots i { width:7px; height:7px; border-radius:50%; background:var(--muted); animation:blink 1.2s infinite; }
+  .dots i:nth-child(2) { animation-delay:.2s; } .dots i:nth-child(3) { animation-delay:.4s; }
+  @keyframes blink { 0%,80%,100% { opacity:.25; } 40% { opacity:1; } }
+  .listen { margin-top:6px; width:34px; height:34px; display:grid; place-items:center; border-radius:50%; border:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; }
+  .listen:hover { background:var(--soft); color:var(--ink); }
+  .listen svg { width:17px; height:17px; }
+  .listen[data-s="busy"] { opacity:.6; animation:blink 1s infinite; }
+  .listen[data-s="play"] { background:var(--cobalt); border-color:transparent; color:var(--on-cobalt); }
+
+  /* composer */
+  .dock { padding-bottom:max(18px, env(safe-area-inset-bottom)); }
+  .bar { display:flex; align-items:flex-end; gap:8px; padding:10px; background:var(--surface); border:1px solid var(--line); border-radius:30px; box-shadow:0 14px 34px -18px rgba(20,23,46,.35); transition:border-color .15s, box-shadow .15s; }
+  .bar:focus-within { border-color:var(--cobalt); box-shadow:0 0 0 3px color-mix(in srgb, var(--cobalt) 26%, transparent); }
+  .icon-btn { flex:none; width:44px; height:44px; display:grid; place-items:center; border-radius:50%; border:1px solid var(--line); background:var(--surface); color:var(--ink); cursor:pointer; transition:background .15s, transform .1s; }
+  .icon-btn:hover:not(:disabled) { background:var(--soft); }
+  .icon-btn:active:not(:disabled) { transform:scale(.95); }
+  .icon-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .icon-btn svg { width:22px; height:22px; display:block; }
+  .icon-btn.primary { background:var(--cobalt); border-color:transparent; color:var(--on-cobalt); }
+  .icon-btn.primary:hover:not(:disabled) { background:var(--cobalt); filter:brightness(1.1); }
+  #mic[data-s="live"] { background:var(--rec); border-color:transparent; color:#fff; animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.6; } }
+  textarea { flex:1; min-width:0; max-height:180px; padding:10px 4px; border:0; outline:0; resize:none; background:transparent; color:var(--ink); font:inherit; font-size:1.0625rem; line-height:24px; }
+  textarea::placeholder { color:var(--muted); opacity:.85; }
+
+  /* voice mode */
+  .voice { position:fixed; inset:0; z-index:10; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:24px; background:var(--paper); --lvl:0; }
+  .orb-wrap { position:relative; width:168px; height:168px; margin-bottom:28px; }
+  .ring { position:absolute; inset:0; border-radius:50%; border:2px solid var(--cobalt); }
+  .r1 { opacity:.38; transform:scale(calc(1.12 + var(--lvl) * .35)); }
+  .r2 { opacity:.18; transform:scale(calc(1.3 + var(--lvl) * .6)); }
+  .orb { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:8px; border-radius:50%; background:var(--cobalt); transform:scale(calc(1 + var(--lvl) * .1)); }
+  .orb i { width:8px; height:calc(18px + var(--lvl) * var(--k) * 64px); border-radius:4px; background:var(--on-cobalt); }
+  .voice[data-state="thinking"] .orb i { animation:bounce 1s ease-in-out infinite; }
+  .voice[data-state="thinking"] .orb i:nth-child(2n) { animation-delay:.15s; }
+  .voice[data-state="thinking"] .orb i:nth-child(3n) { animation-delay:.3s; }
+  @keyframes bounce { 0%,100% { height:18px; } 50% { height:54px; } }
+  .vstate { margin:0; font-size:1.5rem; font-weight:600; letter-spacing:-0.01em; }
+  .vcap { margin:0; min-height:3.2em; max-width:34ch; text-align:center; color:var(--muted); font-size:1.0625rem; }
+  .end { font:inherit; font-size:1rem; padding:12px 26px; border-radius:999px; border:1px solid var(--line); background:var(--surface); color:var(--ink); cursor:pointer; }
+  .end:hover { background:var(--soft); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dots i, #mic[data-s="live"], .voice[data-state="thinking"] .orb i, .listen[data-s="busy"] { animation:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="col">
+    <span class="brand">Voice chat</span>
+    <select id="voiceSel" aria-label="Assistant voice">
+      <option>Kore</option><option>Puck</option><option>Charon</option>
+      <option>Leda</option><option>Aoede</option><option>Fenrir</option>
+    </select>
+    <button class="pill" id="vmBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg>
+      Voice mode
+    </button>
+  </div>
+</header>
+
+<p class="notice" id="notice" hidden>Demo replies: the chat endpoint isn’t connected to the model yet, so answers are placeholders.</p>
+
+<main class="thread" id="thread">
+  <div class="col" id="msgs">
+    <section class="empty" id="empty">
+      <h1>What’s on your mind?</h1>
+      <div class="suggest">
+        <button class="chip" type="button">Explain Spring AI in simple words</button>
+        <button class="chip" type="button">How does speech-to-text work?</button>
+        <button class="chip" type="button">Give me a three-line poem</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="dock">
+  <div class="col">
+    <p class="alert" id="alert" role="alert" hidden></p>
+    <div class="bar">
+      <button class="icon-btn" id="mic" type="button" aria-label="Dictate a message" title="Dictate">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+      <textarea id="text" rows="1" placeholder="Message, or tap the mic and say it"></textarea>
+      <button class="icon-btn primary" id="send" type="button" aria-label="Send message" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></svg>
+      </button>
+    </div>
+  </div>
+</footer>
+
+<section class="voice" id="voice" data-state="listening" aria-label="Voice mode" hidden>
+  <div class="orb-wrap">
+    <i class="ring r2"></i><i class="ring r1"></i>
+    <div class="orb"><i style="--k:.6"></i><i style="--k:1"></i><i style="--k:.8"></i><i style="--k:1"></i><i style="--k:.6"></i></div>
+  </div>
+  <p class="vstate" id="vstate" aria-live="polite">Listening…</p>
+  <p class="vcap" id="vcap"></p>
+  <button class="end" id="end" type="button">End voice mode</button>
+</section>
+
+<script>
+(() => {
+  'use strict';
+  const API = { stt:'/api/stt/transcribe', tts:'/api/tts', chat:'/api/chat', stream:'/api/chat/stream' };
+  const VAD = { thr:0.02, silenceMs:1200, minSpeechMs:300, maxSec:30, waitSec:8 };
+  const RATE = 16000;
+  const conversationId = crypto.randomUUID();      // new page load = new conversation (the server keeps memory per id)
+  const TTS_MAX = 1000;                            // must match the TTS controller limit
+  const clip = t => {                              // cut very long replies at a sentence end before speaking
+    if (t.length <= TTS_MAX) return t;
+    const cut = t.slice(0, TTS_MAX);
+    const i = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+    return i > 400 ? cut.slice(0, i + 1) : cut;
+  };
+  const $ = s => document.querySelector(s);
+  const msgs=$('#msgs'), thread=$('#thread'), empty=$('#empty'), input=$('#text'), micBtn=$('#mic'), sendBtn=$('#send');
+  const alertEl=$('#alert'), notice=$('#notice'), voiceEl=$('#voice'), vstate=$('#vstate'), vcap=$('#vcap'), voiceSel=$('#voiceSel');
+  const SPEAKER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6.5 9H3v6h3.5L11 19z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+
+  /* ---------- helpers ---------- */
+  const showErr = m => { alertEl.textContent = m; alertEl.hidden = false; };
+  const clearErr = () => { alertEl.hidden = true; };
+  const friendly = e => e instanceof TypeError
+    ? 'Couldn’t reach the server. Check that the Spring Boot app is running and that you opened this page from it.'
+    : (e.name === 'NotAllowedError' ? 'Microphone access is blocked. Allow it in the address bar and try again.' : (e.message || 'Something went wrong. Try again.'));
+  async function readError(res) {
+    let d = '';
+    try { const j = await res.json(); d = j.message || j.error || ''; } catch (e) { /* not JSON */ }
+    return 'The server answered ' + res.status + (d ? ': ' + d : '.');
+  }
+  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 180) + 'px'; };
+  input.addEventListener('input', autosize);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
+  });
+
+  /* ---------- messages ---------- */
+  function addMsg(role, text, pending) {
+    empty.hidden = true;
+    const el = document.createElement('div');
+    el.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+    if (role === 'user') el.textContent = text;
+    else if (pending) el.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>';
+    else fillBot(el, text);
+    msgs.appendChild(el);
+    thread.scrollTop = thread.scrollHeight;
+    return el;
+  }
+  function fillBot(el, text) {
+    el.innerHTML = '';
+    const t = document.createElement('div'); t.className = 'text'; t.textContent = text;
+    const b = document.createElement('button'); b.className = 'listen'; b.type = 'button';
+    b.setAttribute('aria-label', 'Listen to this reply'); b.innerHTML = SPEAKER;
+    b.onclick = () => listen(b, text);
+    el.append(t, b);
+    thread.scrollTop = thread.scrollHeight;
+  }
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => send(c.textContent));
+
+  let sending = false;
+  async function send(text) {
+    text = text.trim();
+    if (!text || sending) return;
+    sending = true; clearErr();
+    input.value = ''; autosize();
+    addMsg('user', text);
+    const bot = addMsg('bot', '', true);
+    try { await chatInto(bot, text); }
+    catch (e) { bot.remove(); showErr(friendly(e)); }
+    sending = false;
+  }
+  sendBtn.onclick = () => send(input.value);
+
+  /* ---------- chat endpoint: the reply streams in piece by piece ---------- */
+  function setBotText(el, text) {
+    let t = el.querySelector('.text');
+    if (!t) { el.innerHTML = ''; t = document.createElement('div'); t.className = 'text'; el.appendChild(t); }
+    t.textContent = text;
+    thread.scrollTop = thread.scrollHeight;
+  }
+  // Streams the reply into a bubble, then adds the listen button. Returns the full text.
+  async function chatInto(el, message, onDelta) {
+    let acc = '';
+    const full = await streamChat(message, d => { acc += d; setBotText(el, acc); if (onDelta) onDelta(d); });
+    fillBot(el, full);
+    return full;
+  }
+  async function streamChat(message, onDelta) {
+    let res;
+    try {
+      res = await fetch(API.stream, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({ message, conversationId }) });
+    } catch (e) {
+      if (e instanceof TypeError) return demoStream(message, onDelta);
+      throw e;
+    }
+    if (res.status === 404) return demoStream(message, onDelta);
+    if (!res.ok) throw new Error(await readError(res));
+
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = '', full = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream:true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {              // one server-sent event = one block
+        const block = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = /^event:\s*(.*)$/m.exec(block), dt = /^data:(.*)$/m.exec(block);
+        if (!dt) continue;
+        const data = JSON.parse(dt[1]);
+        if (ev && ev[1].trim() === 'error') throw new Error(data.message || 'The assistant failed. Try again.');
+        if (data.t) { full += data.t; onDelta(data.t); }
+      }
+    }
+    return full.trim() || 'Sorry, I didn’t catch that. Could you say it again?';
+  }
+  async function demoStream(m, onDelta) {
+    notice.hidden = false;
+    const text = 'You said: “' + m.slice(0, 120) + '”. This is a placeholder reply, because the streaming chat endpoint isn’t connected to the model yet.';
+    for (const w of text.split(/(?<=\s)/)) { await new Promise(r => setTimeout(r, 35)); onDelta(w); }
+    return text;
+  }
+
+  /* ---------- microphone (raw samples -> WAV) ---------- */
+  const workletUrl = URL.createObjectURL(new Blob([`
+    class PcmTap extends AudioWorkletProcessor {
+      process(inputs) { const ch = inputs[0] && inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+    }
+    registerProcessor('pcm-tap', PcmTap);
+  `], { type:'text/javascript' }));
+
+  let mic = null, cancelTurn = null;
+  async function openMic() {
+    if (mic) return mic;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, echoCancellation:true, noiseSuppression:true } });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    await ctx.audioWorklet.addModule(workletUrl);
+    const src = ctx.createMediaStreamSource(stream), node = new AudioWorkletNode(ctx, 'pcm-tap'), mute = ctx.createGain();
+    mute.gain.value = 0;
+    src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+    mic = { stream, ctx, sink:null };
+    node.port.onmessage = e => { if (mic && mic.sink) mic.sink(e.data); };
+    return mic;
+  }
+  function closeMic() {
+    if (!mic) return;
+    mic.stream.getTracks().forEach(t => t.stop());
+    mic.ctx.close();
+    mic = null;
+  }
+
+  // Records one spoken turn. Ends by itself after a pause (voice activity detection).
+  // Resolves { data, rate }, null (nothing heard / cancelled) or { error }.
+  async function recordTurn(onLevel) {
+    let m;
+    try { m = await openMic(); } catch (error) { return { error }; }
+    return new Promise(resolve => {
+      const chunks = []; let n = 0, started = false, speechAt = 0, lastLoud = 0, tick = 0, sum = 0, cnt = 0;
+      const t0 = performance.now();
+      const finish = ok => {
+        m.sink = null; cancelTurn = null;
+        if (!ok) return resolve(null);
+        const data = new Float32Array(n); let o = 0;
+        for (const c of chunks) { data.set(c, o); o += c.length; }
+        resolve({ data, rate:m.ctx.sampleRate });
+      };
+      cancelTurn = () => finish(false);
+      m.sink = f => {
+        chunks.push(f); n += f.length;
+        if (!started) while (chunks.length > 1 && n - chunks[0].length > m.ctx.sampleRate * 0.4) n -= chunks.shift().length;
+        for (let i = 0; i < f.length; i++) sum += f[i] * f[i];
+        cnt += f.length;
+        const now = performance.now();
+        if (now - tick < 50) return;
+        const rms = Math.sqrt(sum / cnt); sum = cnt = 0; tick = now;
+        if (onLevel) onLevel(rms);
+        if (rms > VAD.thr) { if (!started) { started = true; speechAt = now; } lastLoud = now; }
+        if (started && now - lastLoud > VAD.silenceMs) finish(lastLoud - speechAt >= VAD.minSpeechMs);
+        else if (!started && now - t0 > VAD.waitSec * 1000) finish(false);
+        else if (now - t0 > VAD.maxSec * 1000) finish(started);
+      };
+    });
+  }
+
+  function resample(d, from, to) {
+    if (from === to) return d;
+    const r = from / to, len = Math.floor(d.length / r), out = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      const a = Math.floor(i * r), b = Math.min(Math.floor((i + 1) * r), d.length);
+      let s = 0; for (let j = a; j < b; j++) s += d[j];
+      out[i] = s / Math.max(1, b - a);
+    }
+    return out;
+  }
+  function encodeWav(x, rate) {
+    const buf = new ArrayBuffer(44 + x.length * 2), v = new DataView(buf);
+    const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    str(0,'RIFF'); v.setUint32(4, 36 + x.length * 2, true); str(8,'WAVE'); str(12,'fmt ');
+    v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+    v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+    str(36,'data'); v.setUint32(40, x.length * 2, true);
+    for (let i = 0, o = 44; i < x.length; i++, o += 2) { const s = Math.max(-1, Math.min(1, x[i])); v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true); }
+    return new Blob([buf], { type:'audio/wav' });
+  }
+  async function transcribe(rec) {
+    const form = new FormData();
+    form.append('file', encodeWav(resample(rec.data, rec.rate, RATE), RATE), 'voice.wav');
+    const res = await fetch(API.stt, { method:'POST', body:form });
+    if (!res.ok) throw new Error(await readError(res));
+    return ((await res.json()).text || '').trim();
+  }
+
+  /* ---------- dictation (mic button in the composer) ---------- */
+  let dictating = false;
+  async function dictate() {
+    if (dictating) { if (cancelTurn) cancelTurn(); return; }
+    dictating = true; clearErr();
+    micBtn.dataset.s = 'live'; input.placeholder = 'Listening…';
+    try {
+      const rec = await recordTurn();
+      if (rec && rec.error) throw rec.error;
+      if (rec) {
+        micBtn.dataset.s = ''; micBtn.disabled = true; input.placeholder = 'Transcribing…';
+        const t = await transcribe(rec);
+        if (t) { input.value = (input.value.trim() ? input.value.trimEnd() + ' ' : '') + t; autosize(); }
+        else showErr('No speech detected. Move closer to the mic and try again.');
+      }
+    } catch (e) { showErr(friendly(e)); }
+    dictating = false; micBtn.disabled = false; micBtn.dataset.s = '';
+    input.placeholder = 'Message, or tap the mic and say it';
+    closeMic(); input.focus();
+  }
+  micBtn.onclick = dictate;
+
+  /* ---------- text to speech ---------- */
+  let player = null, activeQueue = null;
+
+  async function fetchAudio(text) {
+    const res = await fetch(API.tts, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams({ text:clip(text), voice:voiceSel.value }) });
+    if (!res.ok) throw new Error(await readError(res));
+    return URL.createObjectURL(await res.blob());
+  }
+  function playUrl(url, o = {}) {
+    return new Promise((resolve, reject) => {
+      const a = new Audio(url); let ctx = null, raf = 0;
+      const done = () => { cancelAnimationFrame(raf); if (ctx) ctx.close(); URL.revokeObjectURL(url); player = null; if (o.onLevel) o.onLevel(0); };
+      player = { stop() { a.pause(); done(); resolve(); } };
+      try {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const an = ctx.createAnalyser(); an.fftSize = 256;
+        const src = ctx.createMediaElementSource(a); src.connect(an); an.connect(ctx.destination);
+        const d = new Uint8Array(an.frequencyBinCount);
+        const loop = () => {
+          an.getByteFrequencyData(d);
+          let v = 0; for (let i = 2; i < 24; i++) v += d[i];
+          if (o.onLevel) o.onLevel(Math.min(1, v / 22 / 255 * 2.2));
+          raf = requestAnimationFrame(loop);
+        };
+        loop();
+      } catch (e) { ctx = null; }
+      a.onended = () => { done(); resolve(); };
+      a.onerror = () => { done(); reject(new Error('The audio couldn’t be played. Try again.')); };
+      a.play().then(() => { if (o.onStart) o.onStart(); }).catch(e => { done(); reject(e); });
+    });
+  }
+  async function speakText(text, o = {}) { await playUrl(await fetchAudio(text), o); }
+
+  async function listen(btn, text) {
+    if (player) { player.stop(); return; }
+    if (btn.dataset.s === 'busy') return;
+    clearErr(); btn.dataset.s = 'busy';
+    try { await speakText(text, { onStart:() => { btn.dataset.s = 'play'; } }); }
+    catch (e) { showErr(friendly(e)); }
+    btn.dataset.s = '';
+  }
+
+  // Cuts the incoming text into speakable chunks. The first chunk is one short sentence so speech
+  // starts early; later chunks are longer, which keeps the number of TTS requests low.
+  function makeSplitter(emit) {
+    let buf = '', first = true;
+    return {
+      push(t) {
+        buf += t;
+        const re = /[.!?…]["”)]?\s+/g;
+        let m;
+        while ((m = re.exec(buf))) {
+          const sentence = buf.slice(0, m.index + m[0].trimEnd().length);
+          if (sentence.trim().length >= (first ? 20 : 160)) {
+            emit(sentence.trim()); first = false;
+            buf = buf.slice(m.index + m[0].length);
+            re.lastIndex = 0;
+          }
+        }
+      },
+      end() { if (buf.trim()) emit(buf.trim()); buf = ''; }
+    };
+  }
+
+  // Fetches audio for each chunk right away, but plays them one after another,
+  // so the next chunk is usually ready before the current one finishes.
+  function makeSpeechQueue(onLevel, onFirst) {
+    const q = { items:[], closed:false, cancelled:false, running:false, started:false, error:null };
+    let finish; q.done = new Promise(r => { finish = r; });
+    async function run() {
+      if (q.running) return;
+      q.running = true;
+      try {
+        while (q.items.length && !q.cancelled) {
+          const url = await q.items.shift();
+          if (q.cancelled) { URL.revokeObjectURL(url); break; }
+          await playUrl(url, { onLevel, onStart:() => { if (!q.started) { q.started = true; if (onFirst) onFirst(); } } });
+        }
+      } catch (e) { q.error = e; q.cancelled = true; }
+      q.running = false;
+      if (q.cancelled || (q.closed && !q.items.length)) finish();
+    }
+    q.add = text => {
+      if (q.cancelled) return;
+      const p = fetchAudio(text); p.catch(() => {});
+      q.items.push(p); run();
+    };
+    q.close = () => { q.closed = true; run(); };
+    q.cancel = () => { q.cancelled = true; q.items.length = 0; if (player) player.stop(); finish(); };
+    activeQueue = q;
+    return q;
+  }
+
+  /* ---------- voice mode: listen -> transcribe -> chat -> speak -> repeat ---------- */
+  const vm = { active:false, id:0 };
+  let lvl = 0;
+  const setLevel = v => { lvl = lvl * 0.6 + Math.min(1, v) * 0.4; voiceEl.style.setProperty('--lvl', lvl.toFixed(3)); };
+  const setState = (s, label) => { voiceEl.dataset.state = s; vstate.textContent = label; };
+
+  async function startVoiceMode() {
+    if (vm.active || dictating) return;
+    const id = ++vm.id; vm.active = true; clearErr();
+    const alive = () => vm.active && vm.id === id;
+    voiceEl.hidden = false; vcap.textContent = '';
+    try {
+      while (alive()) {
+        setState('listening', 'Listening…');
+        const rec = await recordTurn(v => setLevel(v * 7));
+        if (!alive()) break;
+        if (rec && rec.error) throw rec.error;
+        if (!rec) continue;                                  // silence or noise: keep listening
+        setState('thinking', 'Transcribing…'); setLevel(0);
+        const said = await transcribe(rec);
+        if (!alive()) break;
+        if (!said) continue;
+        vcap.textContent = said; addMsg('user', said);
+        setState('thinking', 'Thinking…');
+        const bot = addMsg('bot', '', true);
+        const queue = makeSpeechQueue(setLevel, () => { if (alive()) setState('speaking', 'Speaking…'); });
+        const splitter = makeSplitter(chunk => queue.add(chunk));
+        try { await chatInto(bot, said, d => splitter.push(d)); splitter.end(); }
+        catch (e) { queue.cancel(); throw e; }
+        queue.close();
+        await queue.done;
+        if (!alive()) break;
+        if (queue.error) throw queue.error;
+      }
+    } catch (e) { showErr(friendly(e)); }
+    if (vm.id === id) endVoiceMode();
+  }
+  function endVoiceMode() {
+    vm.active = false;
+    if (cancelTurn) cancelTurn();
+    if (activeQueue) activeQueue.cancel();
+    if (player) player.stop();
+    closeMic(); setLevel(0);
+    voiceEl.hidden = true;
+  }
+  $('#vmBtn').onclick = startVoiceMode;
+  $('#end').onclick = endVoiceMode;
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && vm.active) endVoiceMode(); });
+
+  autosize();
+})();
+</script>
+</body>
+</html>

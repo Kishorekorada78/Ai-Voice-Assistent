@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Real-time Voice to Text</title>
+  <style>
+    body { font-family: sans-serif; max-width: 650px; margin: 40px auto; }
+    button { padding: 12px 24px; font-size: 16px; margin-right: 8px; }
+    #level { height: 10px; background: #ddd; margin: 16px 0; }
+    #bar { height: 100%; width: 0; background: #2e7d32; }
+    #status { color: #666; margin-bottom: 8px; }
+    #result { padding: 12px; border: 1px solid #ccc; min-height: 120px; white-space: pre-wrap; }
+  </style>
+  <link rel="icon" href="data:,">
+</head>
+<body>
+  <h2>🎙️ Real-time Voice to Text</h2>
+  <button id="start">Start Listening</button>
+  <button id="stop" disabled>Stop</button>
+  <div id="level"><div id="bar"></div></div>
+  <div id="status">Idle</div>
+  <div id="result"></div>
+
+  <script>
+	// A. Settings
+    const THRESHOLD = 0.02;     // voice level that counts as "speaking" (raise it if room is noisy)
+    const SILENCE_MS = 1200;     // pause length that ends a sentence
+    const MAX_SEGMENT_MS = 15000;	// // force-cut very long speech
+
+	// B. Picking a recording format
+    const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
+        .find(t => MediaRecorder.isTypeSupported(t));
+
+    let ws, stream, audioCtx, analyser, recorder, timer;
+    let silenceStart = 0, pending = 0, stopping = false;
+    const buf = new Uint8Array(2048);
+
+    const $ = id => document.getElementById(id);
+
+	// C. Start Button
+    $('start').onclick = async () => {
+      stopping = false; pending = 0;
+      ws = new WebSocket(`ws://${location.host}/ws/stt`);
+      ws.onopen = () => ws.send(mimeType.split(';')[0]);          // tell server the format
+      ws.onmessage = ev => {
+        pending--;
+        if (ev.data.startsWith('ERROR:')) { $('status').innerText = ev.data; }
+        else if (ev.data.trim()) { $('result').innerText += ev.data + ' '; }
+        closeIfIdle();
+      };
+
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, noiseSuppression: true, echoCancellation: true }
+      });
+	  
+	  // D. Measuring loudness
+      audioCtx = new AudioContext();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+
+      recorder = newRecorder();
+      timer = setInterval(detectVoice, 50);
+      $('start').disabled = true; $('stop').disabled = false;
+      $('status').innerText = 'Listening... speak, then pause';
+    };
+
+    $('stop').onclick = () => {
+      stopping = true;
+      clearInterval(timer);
+      recorder.stop();                       // flushes the last sentence
+      stream.getTracks().forEach(t => t.stop());
+      audioCtx.close();
+      $('start').disabled = false; $('stop').disabled = true;
+      $('status').innerText = 'Stopped';
+      $('bar').style.width = '0';
+    };
+
+    // One recorder = one sentence. A new one starts right after the previous stops.
+	function newRecorder() {
+	  const chunks = [];
+	  const rec = new MediaRecorder(stream, { mimeType });
+	  rec.hadSpeech = false;
+	  rec.speechMs = 0;                 // ← initialize here, when the recorder is created
+	  rec.startedAt = Date.now();
+
+	  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+
+	  rec.onstop = () => {
+	    // ONE send, with the minimum-speech check (replaces your original if)
+	    if (rec.hadSpeech && rec.speechMs >= 600 && ws.readyState === WebSocket.OPEN) {
+	      pending++;
+	      ws.send(new Blob(chunks, { type: mimeType }));
+	      $('status').innerText = 'Transcribing...';
+	    }
+	    closeIfIdle();
+	  };
+
+	  rec.start();
+	  return rec;
+	}
+	
+    // Voice Activity Detection: measure loudness 20x per second
+	function detectVoice() {
+	  analyser.getByteTimeDomainData(buf);
+	  let sum = 0;
+	  for (const v of buf) { const x = (v - 128) / 128; sum += x * x; }
+	  const rms = Math.sqrt(sum / buf.length);
+	  $('bar').style.width = Math.min(rms * 400, 100) + '%';
+
+	  const now = Date.now();
+	  if (rms > THRESHOLD) {
+	    recorder.hadSpeech = true;
+	    recorder.speechMs += 50;        // ← count loud time (each tick = 50 ms)
+	    silenceStart = 0;
+	  } else if (recorder.hadSpeech && silenceStart === 0) {
+	    silenceStart = now;
+	  }
+
+	  const sentenceEnded = recorder.hadSpeech && silenceStart && (now - silenceStart > SILENCE_MS);
+	  const tooLong = recorder.hadSpeech && (now - recorder.startedAt > MAX_SEGMENT_MS);
+	  if (sentenceEnded || tooLong) {
+	    recorder.stop();
+	    recorder = newRecorder();
+	    silenceStart = 0;
+	  }
+	}
+    function closeIfIdle() {
+      if (stopping && pending === 0 && ws.readyState === WebSocket.OPEN) ws.close();
+    }
+  </script>
+</body>
+</html>
